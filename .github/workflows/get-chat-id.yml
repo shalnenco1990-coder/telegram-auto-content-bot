@@ -1,0 +1,40 @@
+name: Find Telegram Chat ID
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  find-chat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find private chat
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "Missing TELEGRAM_BOT_TOKEN secret"
+            exit 1
+          fi
+
+          RESPONSE=$(curl -fsS \
+            "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates")
+
+          if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "Telegram API error. Check token and webhook settings."
+            exit 1
+          fi
+
+          CHAT_ID=$(echo "$RESPONSE" | jq -r \
+            '[.result[] | select(.message.chat.type == "private") | .message.chat.id] | last // empty')
+
+          if [ -z "$CHAT_ID" ]; then
+            echo "No private chat found. Send /start to the bot first."
+            exit 1
+          fi
+
+          echo "Your private Telegram Chat ID: $CHAT_ID"
