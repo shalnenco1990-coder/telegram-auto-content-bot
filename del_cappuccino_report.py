@@ -33,12 +33,12 @@ def get_news(query):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=12) as response:
             root = ET.fromstring(response.read())
 
         results = []
 
-        for item in root.findall(".//item")[:6]:
+        for item in root.findall(".//item")[:4]:
             title = item.findtext("title", "").strip()
             link = item.findtext("link", "").strip()
             date = item.findtext("pubDate", "").strip()
@@ -96,7 +96,7 @@ def make_report(news, date):
         }],
         "generationConfig": {
             "temperature": 0.2,
-            "maxOutputTokens": 1400,
+            "maxOutputTokens": 900,
         },
     }
 
@@ -116,7 +116,7 @@ def make_report(news, date):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
+        with urllib.request.urlopen(request, timeout=45) as response:
             data = json.loads(response.read().decode("utf-8"))
 
     except urllib.error.HTTPError as error:
