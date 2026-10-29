@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 QUERIES = [
     '"Del Cappucino" Kazakhstan',
@@ -19,6 +19,7 @@ QUERIES = [
     'Алматы кофейни рестораны новости',
 ]
 
+
 def get_news(query):
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({
         "q": query,
@@ -26,14 +27,17 @@ def get_news(query):
         "gl": "KZ",
         "ceid": "KZ:ru",
     })
+
     request = urllib.request.Request(
         url, headers={"User-Agent": "Mozilla/5.0"}
     )
+
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             root = ET.fromstring(response.read())
 
         results = []
+
         for item in root.findall(".//item")[:6]:
             title = item.findtext("title", "").strip()
             link = item.findtext("link", "").strip()
@@ -47,9 +51,13 @@ def get_news(query):
                     "date": date,
                     "source": source,
                 })
+
         return results
-    except Exception:
+
+    except Exception as error:
+        print(f"Search error: {type(error).__name__}")
         return []
+
 
 def make_report(news, date):
     prompt = f"""
@@ -64,47 +72,73 @@ def make_report(news, date):
 5. Важные новости ресторанного рынка Алматы.
 
 Используй только предоставленные результаты. Не выдумывай факты.
-Для каждого найденного события укажи источник и ссылку.
+Для каждого события укажи источник и ссылку.
 Не выдавай отсутствие публикаций за доказательство отсутствия событий.
 Если сведений нет, честно укажи это.
 Отдельно перечисли, что необходимо проверить вручную.
 Пиши конкретно, как для руководителя. До 3000 символов.
 
 Дата: {date}
+
 Результаты поиска:
 {json.dumps(news, ensure_ascii=False)}
 """
 
     payload = {
-        "model": "gpt-4.1-mini",
-        "messages": [
-            {
-                "role": "system",
-                "content": "Ты точный аналитик. Не выдумывай сведения и ссылки."
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.2,
-        "max_tokens": 1400,
+        "systemInstruction": {
+            "parts": [{
+                "text": "Ты точный аналитик. Не выдумывай сведения и ссылки."
+            }]
+        },
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1400,
+        },
     }
 
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "gemini-2.5-flash:generateContent"
+    )
+
     request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        url,
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "x-goog-api-key": GEMINI_API_KEY,
             "Content-Type": "application/json",
         },
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=60) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = json.loads(response.read().decode("utf-8"))
 
-    return data["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")
+        print(f"Gemini API error: HTTP {error.code}")
+        print(details[:1500])
+        raise
+
+    try:
+        return "".join(
+            part["text"]
+            for part in data["candidates"][0]["content"]["parts"]
+            if "text" in part
+        ).strip()
+
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError("Gemini вернул ответ в неожиданном формате")
+
 
 def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
     payload = {
         "chat_id": CHAT_ID,
         "text": text[:4000],
@@ -124,6 +158,7 @@ def send_message(text):
     if not result.get("ok"):
         raise RuntimeError("Telegram message sending failed")
 
+
 def main():
     today = datetime.now(
         ZoneInfo("Asia/Almaty")
@@ -141,12 +176,13 @@ def main():
     report = make_report(news[:40], today)
 
     message = (
-        f"☕ DEL CAPPUCCINO — ЕЖЕДНЕВНЫЙ ОТЧЁТ\n"
+        "☕ DEL CAPPUCCINO — ЕЖЕДНЕВНЫЙ ОТЧЁТ\n"
         f"📅 {today} | Алматы\n\n{report}"
     )
 
     send_message(message)
     print("Report sent successfully.")
+
 
 if __name__ == "__main__":
     main()
