@@ -119,11 +119,32 @@ def make_report(news, date):
         with urllib.request.urlopen(request, timeout=45) as response:
             data = json.loads(response.read().decode("utf-8"))
 
-    except urllib.error.HTTPError as error:
-        details = error.read().decode("utf-8", errors="replace")
-        print(f"Gemini API error: HTTP {error.code}")
-        print(details[:1500])
-        raise
+        except Exception as error:
+        print(f"Gemini error: {type(error).__name__}: {error}")
+
+        fallback_items = []
+        for item in news[:8]:
+            title = item.get("title", "").strip()
+            link = item.get("link", "").strip()
+
+            if title:
+                entry = f"• {title}"
+                if link:
+                    entry += f"\n{link}"
+                fallback_items.append(entry)
+
+        if fallback_items:
+            return (
+                "⚠️ Не удалось получить AI-анализ Gemini.\n"
+                "Ниже — найденные публикации без дополнительных выводов:\n\n"
+                + "\n\n".join(fallback_items)
+            )
+
+        return (
+            "⚠️ Не удалось получить ответ Gemini, "
+            "а поиск не вернул публикаций для резервного отчёта.\n"
+            "Это не означает, что новостей нет."
+        )
 
     try:
         return "".join(
